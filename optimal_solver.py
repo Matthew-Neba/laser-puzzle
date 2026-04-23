@@ -18,7 +18,7 @@ use bitmasks/bit string in c for state representation
 Will implement idffs + pruning based on lazer beams path. This means realistically, we should be finding the solution quickler than in 
 """
 
-from good_examples import EXAMPLE_PUZZLES_NO_MIRRORS
+from generated_examples import EXAMPLE_PUZZLES_NO_MIRRORS
 
 from generate_level import MAX_MIRRORS 
 from generate_level import DIRS, DIRS_MAP
