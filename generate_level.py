@@ -46,6 +46,8 @@ def generate_grid(
     
     return grid
 
+def on_border(pos:tuple, grid: List[List[str]]) -> bool:
+    return (pos[0] in [0, len(grid) - 1] or pos[1] in [0, len(grid[0]) - 1])
 
 # take a step with laser, give new pos of laser, give new direction of laser also (None if at border)
 def laser_step(
@@ -61,7 +63,7 @@ def laser_step(
     nc = pos[1] + direction[1]
 
     # we have hit the border
-    if not (0 < nr < ROWS - 1 and 0 < nc < COLS - 1):
+    if on_border((nr,nc), grid):
         return (nr,nc), None
 
     # check if we hit a mirror and reflect
@@ -107,7 +109,7 @@ def ensure_rules(grid: List[List[str]]) -> bool:
         # init with one step, leads to a cleaner while loop
         visited_lasers.add((cur_pos, cur_dir))
         next_pos, next_dir = laser_step(cur_pos, cur_dir, grid)
-        while (next_pos[0] not in [0, ROWS - 1]) and (next_pos[1] not in [0, COLS - 1]):
+        while not on_border(next_pos, grid):
             """
             criteria: 
             - no laser loops forever - ensure while building, DONE 
@@ -163,7 +165,8 @@ def place_a_mirror(grid):
             cur_dir = DIRS_MAP["left"]
         
         next_pos, next_dir = laser_step(cur_pos, cur_dir, grid)
-        while (next_pos[0] not in [0, ROWS - 1]) and (next_pos[1] not in [0, COLS - 1]):
+        while not on_border(next_pos, grid):
+
             if grid[next_pos[0]][next_pos[1]] == '*':
                 valid.append(next_pos)
             
@@ -249,7 +252,7 @@ def generate_puzzle(
             cur_dir = DIRS_MAP["left"]
 
         next_pos, next_dir = laser_step(cur_pos, cur_dir, grid)
-        while (next_pos[0] not in [0, ROWS - 1]) and (next_pos[1] not in [0, COLS - 1]):
+        while not on_border(next_pos, grid):
             next_pos, next_dir = laser_step(next_pos, next_dir, grid)
         
         if next_pos in sinks or next_pos in lasers:
