@@ -273,8 +273,8 @@ if __name__ == "__main__":
     MAX_ROWS = 4
     MIN_COLS = 4
     MAX_COLS = 4
-    MIN_LASERS = 3
-    MAX_LASERS = 4
+    MIN_LASERS = 1
+    MAX_LASERS = 2
 
     grid, attempts = generate_puzzle(
         MIN_ROWS,

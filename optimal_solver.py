@@ -18,83 +18,96 @@ use bitmasks/bit string in c for state representation
 Will implement idffs + pruning based on lazer beams path. This means realistically, we should be finding the solution quickler than in 
 """
 
-from good_examples import EXAMPLE_PUZZLES
+from good_examples import EXAMPLE_PUZZLES_NO_MIRRORS
 
+from generate_level import MAX_MIRRORS 
 from generate_level import DIRS, DIRS_MAP
 from generate_level import laser_step
 
+def iddfs(grid, max_depth):
+    optimal = None
+    def dfs(grid, visited, cur_depth, goal_depth):
+        nonlocal optimal
 
-# TODO: will need to make sure to add the initial state to the visited sett when driving the dfs
-# will also need to do nonlocal for optimal , and reset visited on each depth run
-optimal = None
-def dfs(grid, visited, cur_depth, goal_depth):
-    global optimal
+        if cur_depth > goal_depth:
+            return
 
-    if cur_depth > goal_depth:
-        return
+        # found the solution already, exit
+        if optimal is not None:
+            return
+        
+        ROWS, COLS = len(grid), len(grid[0])
 
-    # found the solution already, exit
-    if optimal is not None:
-        return
-    
-    ROWS, COLS = len(grid), len(grid[0])
+        lasers = set()
+        for r in range(ROWS):
+            for c in range(COLS):
+                if grid[r][c][0] == 'L':
+                    # specify which laser
+                    lasers.add((r,c,grid[r][c][1:]))
+        
+        valid = set()
+        need_sinks = len(lasers)
 
-    lasers = set()
-    for r in range(ROWS):
-        for c in range(COLS):
-            if grid[r][c][0] == 'L':
-                # specify which laser
-                lasers.add((r,c,grid[r][c][1:]))
-    
-    valid = set()
-    need_sinks = len(lasers)
+        for laser in lasers:
+            r,c,idx = laser
+            # get initial direction of laser
+            if r == 0:
+                cur_dir = DIRS_MAP["down"]
+            elif r == ROWS - 1:
+                cur_dir = DIRS_MAP["up"]
+            elif c == 0:
+                cur_dir = DIRS_MAP["right"]
+            else:
+                cur_dir = DIRS_MAP["left"]
 
-    for laser in lasers:
-        r,c,idx = laser
-        # get initial direction of laser
-        if r == 0:
-            cur_dir = DIRS_MAP["down"]
-        elif r == ROWS - 1:
-            cur_dir = DIRS_MAP["up"]
-        elif c == 0:
-            cur_dir = DIRS_MAP["right"]
-        else:
-            cur_dir = DIRS_MAP["left"]
+            visited_laser = set([((r,c), cur_dir)])
+            next_pos, next_dir = laser_step((r,c), cur_dir, grid)
+            while (next_pos[0] not in [0, ROWS - 1]) and (next_pos[1] not in [0, COLS - 1]):
+                # see if laser forms a cycle
+                if (next_pos, next_dir) in visited_laser:
+                    break
 
-        visited_laser = set([((r,c), cur_dir)])
-        next_pos, next_dir = laser_step((r,c), cur_dir, grid)
-        while (next_pos[0] not in [0, ROWS - 1]) and (next_pos[1] not in [0, COLS - 1]):
-            # see if laser forms a cycle
-            if (next_pos, next_dir) in visited_laser:
-                break
+                if grid[next_pos[0]][next_pos[1]] == '*':
+                    valid.add(next_pos)
+                
+                visited_laser.add((next_pos, next_dir))
+                next_pos, next_dir = laser_step(next_pos, next_dir, grid)
 
-            if grid[next_pos[0]][next_pos[1]] == '*':
-                valid.add(next_pos)
-            
-            visited_laser.add((next_pos, next_dir))
-            next_pos, next_dir = laser_step(next_pos, next_dir, grid)
+            # check if we are at a sink and the correct sink
+            if grid[next_pos[0]][next_pos[1]] == f"S{idx}":
+                need_sinks -= 1
 
-        # check if we are at a sink and the correct sink
-        if grid[next_pos[0]][next_pos[1]] == f"S{idx}":
-            need_sinks -= 1
+        # check if we have put the lasers all in thier place
+        if need_sinks == 0:
+            optimal = cur_depth
+            return
 
-    # check if we have put the lasers all in thier place
-    if need_sinks == 0:
-        optimal = cur_depth
-        return
+        # we now have all the valid spots, choose each valid spot with both configurations and branch out
+        for r,c in valid:
+            for orientation in ['ML', 'MR']:
+                grid[r][c] = orientation
+                state = tuple(tuple(row) for row in grid)
+                if state in visited: 
+                    # backtrack
+                    grid[r][c] = '*'
+                    continue
+                
+                visited.add(state)
+                dfs(grid, visited, cur_depth + 1, goal_depth)
 
-    # we now have all the valid spots, choose each valid spot with both configurations and branch out
-    for r,c in valid:
-        for orientation in ['ML', 'MR']:
-            grid[r][c] = orientation
-            state = tuple(tuple(row) for row in grid)
-            if state in visited: 
                 # backtrack
                 grid[r][c] = '*'
-                continue
-            
-            visited.add(state)
-            dfs(grid, visited, cur_depth + 1, goal_depth)
 
-            # backtrack
-            grid[r][c] = '*'
+    for depth in range(max_depth + 1):
+        visited = set([tuple(tuple(row) for row in grid)])
+        dfs(grid, visited, 0, depth)
+        if optimal is not None:
+            return optimal
+    
+    return None
+
+for grid in EXAMPLE_PUZZLES_NO_MIRRORS:
+    # we know that the optimal amount of mirros must be <= max mirrors the level generator can use
+    solution = iddfs(grid, MAX_MIRRORS)
+    print(solution)
+
