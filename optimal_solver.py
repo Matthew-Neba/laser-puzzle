@@ -79,7 +79,8 @@ def iddfs(grid, max_depth):
 
         # check if we have put the lasers all in thier place
         if need_sinks == 0:
-            optimal = cur_depth
+            # store the optimal solution
+            optimal = [list(list(row) for row in grid), cur_depth]
             return
 
         # we now have all the valid spots, choose each valid spot with both configurations and branch out
@@ -104,10 +105,14 @@ def iddfs(grid, max_depth):
         if optimal is not None:
             return optimal
     
-    return None
+    return [None, None]
 
 for grid in EXAMPLE_PUZZLES_NO_MIRRORS:
     # we know that the optimal amount of mirros must be <= max mirrors the level generator can use
-    solution = iddfs(grid, MAX_MIRRORS)
-    print(solution)
+    optimal_solution, optimal_mirror_count = iddfs(grid, MAX_MIRRORS)
+    print("----------------------------")
+    print(optimal_mirror_count)
+    print(optimal_solution)
+    print("----------------------------")
+
 
