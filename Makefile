@@ -7,10 +7,10 @@ SRC = laser-puzzle.c
 
 all: $(TARGET)
 
-verified_puzzles.h: verified_puzzles.py export_verified_puzzles_header.py
-	python3 export_verified_puzzles_header.py
+generate-levels:
+	python3 level_generation/export_verified_puzzles_header.py
 
-$(TARGET): $(SRC) verified_puzzles.h
+$(TARGET): $(SRC) level_generation/verified_puzzles.h
 	$(CC) $(CFLAGS) $(SRC) -o $(TARGET) $(LDFLAGS)
 
 run: $(TARGET)
@@ -19,4 +19,4 @@ run: $(TARGET)
 clean:
 	rm -f $(TARGET)
 
-.PHONY: all run clean
+.PHONY: all run clean generate-levels

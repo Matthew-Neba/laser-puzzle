@@ -2,32 +2,13 @@
 #include <time.h>
 #include "raylib.h"
 
-#define INIT_ROWS 6
-#define INIT_COLS 6
 #define BOARD_IDX(cols, r, c) ((r) * (cols) + (c))
+
+#include "level_generation/puzzle_types.h"
+#include "level_generation/verified_puzzles.h"
 
 static const int CELL_SIZE = 80;
 static const Color LASER_COLORS[] = {SKYBLUE, RED, GREEN, YELLOW, BLUE, ORANGE, PURPLE, MAGENTA};
-
-
-typedef enum {
-    EMPTY,
-    LASER,
-    SENSOR
-} CellType;
-
-typedef enum {
-    MIRROR_NONE,
-    MIRROR_RIGHT,
-    MIRROR_LEFT
-} MirrorState;
-
-typedef struct {
-    CellType type;
-    MirrorState mirror;
-    int id;
-} Cell;
-
 
 typedef struct {
     int ROWS;
@@ -42,12 +23,9 @@ typedef struct {
     int mirrors_placed;
     int moves_made;
     int game_over;
-    int level_index;
     int total_sinks;
     int optimal_mirrors;
 } LaserPuzzle;
-
-#include "verified_puzzles.h"
 
 // reset the game state, start a new game
 void c_reset(LaserPuzzle* env) {
@@ -55,20 +33,14 @@ void c_reset(LaserPuzzle* env) {
     env->sinks_found = 0;
     env->mirrors_placed = 0;
     env->moves_made = 0;
+    env->game_over = 0;
 
     if (env->board == NULL) {
         env->board = calloc(env->ROWS * env->COLS, sizeof(Cell));
     }
 
-    int previous_level = env->level_index;
-    env->level_index = rand() % VERIFIED_PUZZLE_COUNT;
-    if (env->board != NULL && VERIFIED_PUZZLE_COUNT > 1) {
-        while (env->level_index == previous_level) {
-            env->level_index = rand() % VERIFIED_PUZZLE_COUNT;
-        }
-    }
-
-    const VerifiedPuzzle* level = &VERIFIED_PUZZLES[env->level_index];
+    int level_index = rand() % VERIFIED_PUZZLE_COUNT;
+    const VerifiedPuzzle* level = &VERIFIED_PUZZLES[level_index];
     env->total_sinks = level->sensor_count;
     env->optimal_mirrors = level->optimal_mirrors;
 
@@ -82,12 +54,8 @@ void c_reset(LaserPuzzle* env) {
 
 // advance state
 void c_step(LaserPuzzle* env) {
+    // force a new reset of the game
     if (IsKeyPressed(KEY_R)) {
-        c_reset(env);
-        return;
-    }
-
-    if (IsKeyPressed(KEY_N)) {
         c_reset(env);
         return;
     }
@@ -167,6 +135,9 @@ void c_step(LaserPuzzle* env) {
             }
         }
     }
+
+    // we have completed the game
+    env->game_over = env->sinks_found == env->total_sinks && env->mirrors_placed == env->optimal_mirrors;
 }
 
 
@@ -254,8 +225,8 @@ void c_render(LaserPuzzle* env) {
     
     // load puffers and font
     if (!env->assets_loaded) {
-        env->sprites = LoadTexture("puffers.png");
-        env->font = LoadFontEx("JetBrainsMono-SemiBold.ttf", 32, NULL, 0);
+        env->sprites = LoadTexture("assets/puffers.png");
+        env->font = LoadFontEx("assets/JetBrainsMono-SemiBold.ttf", 32, NULL, 0);
         env->assets_loaded = 1;
     }
 
@@ -332,15 +303,25 @@ void c_render(LaserPuzzle* env) {
     const char* sinksText = TextFormat("Sinks: %i/%i", env->sinks_found, env->total_sinks);
     const char* movesText = TextFormat("Moves: %i", env->moves_made);
     const char* mirrorsText = TextFormat("Mirrors: %i/%i", env->mirrors_placed, env->optimal_mirrors);
-    const char* levelText = TextFormat("Level: %i/%i", env->level_index + 1, VERIFIED_PUZZLE_COUNT);
-    Vector2 levelSize = MeasureTextEx(env->font, levelText, fontSize, spacing);
     Vector2 movesSize = MeasureTextEx(env->font, movesText, fontSize, spacing);
     Vector2 mirrorsSize = MeasureTextEx(env->font, mirrorsText, fontSize, spacing);
 
     DrawTextEx(env->font, sinksText, (Vector2){16, 14}, fontSize, spacing, RAYWHITE);
-    DrawTextEx(env->font, levelText, (Vector2){(GetScreenWidth() - levelSize.x) / 2.0f, 14}, fontSize, spacing, RAYWHITE);
     DrawTextEx(env->font, movesText, (Vector2){GetScreenWidth() - movesSize.x - 16, GetScreenHeight() - fontSize - 16}, fontSize, spacing, RAYWHITE);
     DrawTextEx(env->font, mirrorsText, (Vector2){GetScreenWidth() - mirrorsSize.x - 16, 14}, fontSize, spacing, RAYWHITE);
+
+    // we only get here if we have found all sinks but not in the optimal mirror count (c_step will generate new
+    // level if we foudn the optimal mirror count)
+    if (env->sinks_found == env->total_sinks) {
+        const char* solvedText = "Puzzle solved! Can you do it in less mirrors?";
+        if (env->game_over) {
+            solvedText = "Optimal solve! Press R for the next puzzle.";
+        }
+
+        const float solvedFontSize = 24.0f;
+        Vector2 solvedSize = MeasureTextEx(env->font, solvedText, solvedFontSize, spacing);
+        DrawTextEx(env->font, solvedText, (Vector2){(GetScreenWidth() - solvedSize.x) / 2.0f, 56}, solvedFontSize, spacing, RAYWHITE);
+    }
 
     EndDrawing();
 }
@@ -368,7 +349,6 @@ void c_close(LaserPuzzle* env) {
 }
 
 
-// TODO: Handle game over and that c_reset start up with a new level
 int main() {
     srand((unsigned int)time(NULL));
 

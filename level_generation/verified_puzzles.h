@@ -1,6 +1,8 @@
 #ifndef VERIFIED_PUZZLES_H
 #define VERIFIED_PUZZLES_H
 
+#include "puzzle_types.h"
+
 #define VERIFIED_PUZZLE_COUNT 20
 
 typedef struct {
