@@ -9,19 +9,15 @@ work per state: at most 16 * 4 = 64 steps per laser
 4x4 board, max 7 mirrors
 states: sum(C(16, k) * 2^k for k in 0..7) = 2,150,721
 
-Total work = states * work per state = 2,150,721 * 64 = 137,646,144
-
-
+Total work = states * work per state = 2,150,721 * 64 = 137,646,144 --> severly reduced though in practice due to laser path pruning
 
 use bitmasks/bit string in c for state representation
 
-Will implement idffs + pruning based on lazer beams path. This means realistically, we should be finding the solution quickler than in 
+Will implement idffs + pruning based on lazer beams path. This means realistically, we should be finding the solution quickler than the worst case
 """
 
-from generated_examples import EXAMPLE_PUZZLES_NO_MIRRORS
-
 from generate_level import MAX_MIRRORS 
-from generate_level import DIRS, DIRS_MAP
+from generate_level import DIRS_MAP
 from generate_level import laser_step
 
 def iddfs(grid, max_depth):
@@ -106,13 +102,4 @@ def iddfs(grid, max_depth):
             return optimal
     
     return [None, None]
-
-for grid in EXAMPLE_PUZZLES_NO_MIRRORS:
-    # we know that the optimal amount of mirros must be <= max mirrors the level generator can use
-    optimal_solution, optimal_mirror_count = iddfs(grid, MAX_MIRRORS)
-    print("----------------------------")
-    print(optimal_mirror_count)
-    print(optimal_solution)
-    print("----------------------------")
-
 

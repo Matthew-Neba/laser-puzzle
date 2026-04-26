@@ -291,5 +291,5 @@ if __name__ == "__main__":
         100000,
     )
 
-
+    print(f"Attempts: {attempts}")
     print(grid)

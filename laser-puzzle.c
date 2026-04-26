@@ -1,71 +1,389 @@
+#include <stdlib.h>
+#include <time.h>
 #include "raylib.h"
 
-#define ROWS 6
-#define COLS 6
+#define INIT_ROWS 6
+#define INIT_COLS 6
+#define BOARD_IDX(cols, r, c) ((r) * (cols) + (c))
+
+static const int CELL_SIZE = 80;
+static const Color LASER_COLORS[] = {SKYBLUE, RED, GREEN, YELLOW, BLUE, ORANGE, PURPLE, MAGENTA};
+
 
 typedef enum {
     EMPTY,
-    MIRROR_LEFT,
-    MIRROR_RIGHT,
     LASER,
     SENSOR
 } CellType;
 
+typedef enum {
+    MIRROR_NONE,
+    MIRROR_RIGHT,
+    MIRROR_LEFT
+} MirrorState;
+
 typedef struct {
     CellType type;
+    MirrorState mirror;
     int id;
 } Cell;
 
-// will hardcode a board for now
-Cell board[ROWS][COLS] = {
-    {{EMPTY,-1}, {EMPTY,-1}, {SENSOR,1}, {LASER,0}, {EMPTY,-1}, {EMPTY,-1}},
-    {{EMPTY,-1}, {EMPTY,-1}, {MIRROR_LEFT,-1}, {MIRROR_LEFT,-1}, {MIRROR_LEFT,-1}, {EMPTY,-1}},
-    {{LASER,1}, {EMPTY,-1}, {EMPTY,-1}, {MIRROR_RIGHT,-1}, {MIRROR_RIGHT,-1}, {EMPTY,-1}},
-    {{EMPTY,-1}, {MIRROR_RIGHT,-1}, {EMPTY,-1}, {EMPTY,-1}, {MIRROR_LEFT,-1}, {EMPTY,-1}},
-    {{EMPTY,-1}, {EMPTY,-1}, {EMPTY,-1}, {EMPTY,-1}, {EMPTY,-1}, {EMPTY,-1}},
-    {{EMPTY,-1}, {SENSOR,2}, {EMPTY,-1}, {SENSOR,0}, {LASER,2}, {EMPTY,-1}},
-};
+
+typedef struct {
+    int ROWS;
+    int COLS;
+    Cell *board;
+    Texture2D sprites;
+    Texture2D background;
+    Font font;
+    int assets_loaded;
+    int should_close;
+    int sinks_found;
+    int mirrors_placed;
+    int moves_made;
+    int game_over;
+    int level_index;
+    int total_sinks;
+    int optimal_mirrors;
+} LaserPuzzle;
+
+#include "verified_puzzles.h"
+
+// reset the game state, start a new game
+void c_reset(LaserPuzzle* env) {
+    env->should_close = 0;
+    env->sinks_found = 0;
+    env->mirrors_placed = 0;
+    env->moves_made = 0;
+
+    if (env->board == NULL) {
+        env->board = calloc(env->ROWS * env->COLS, sizeof(Cell));
+    }
+
+    int previous_level = env->level_index;
+    env->level_index = rand() % VERIFIED_PUZZLE_COUNT;
+    if (env->board != NULL && VERIFIED_PUZZLE_COUNT > 1) {
+        while (env->level_index == previous_level) {
+            env->level_index = rand() % VERIFIED_PUZZLE_COUNT;
+        }
+    }
+
+    const VerifiedPuzzle* level = &VERIFIED_PUZZLES[env->level_index];
+    env->total_sinks = level->sensor_count;
+    env->optimal_mirrors = level->optimal_mirrors;
+
+    for (int r = 0; r < env->ROWS; r++) {
+        for (int c = 0; c < env->COLS; c++) {
+            env->board[BOARD_IDX(env->COLS, r, c)] = level->puzzle[r][c];
+        }
+    }
+}
 
 
-int main() {
-    // init window
-    InitWindow(800, 800, "laser puzzle");
+// advance state
+void c_step(LaserPuzzle* env) {
+    if (IsKeyPressed(KEY_R)) {
+        c_reset(env);
+        return;
+    }
 
-    while (!WindowShouldClose()) {
+    if (IsKeyPressed(KEY_N)) {
+        c_reset(env);
+        return;
+    }
 
-        // 1) take in user input
-        // 2) update input/state
-        BeginDrawing();
-        ClearBackground(RAYWHITE);
+    int gridWidth = env->COLS * CELL_SIZE;
+    int gridHeight = env->ROWS * CELL_SIZE;
+    int offsetX = (GetScreenWidth() - gridWidth) / 2;
+    int offsetY = (GetScreenHeight() - gridHeight) / 2;
 
-        // 3) Draw
-        int cellSize = 80;
-        int offsetX = 100;
-        int offsetY = 100;
+    if (!IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        return;
+    }
 
-        for (int r = 0; r < ROWS; r++) {
-            for (int c = 0; c < COLS; c++) {
-                int x = offsetX + c * cellSize;
-                int y = offsetY + r * cellSize;
+    Vector2 mouse = GetMousePosition();
+    int c = (mouse.x - offsetX) / CELL_SIZE;
+    int r = (mouse.y - offsetY) / CELL_SIZE;
 
-                DrawRectangleLines(x, y, cellSize, cellSize, BLACK);
+    // we selected something on / outside the grid border
+    if (r < 1 || r >= env->ROWS - 1 || c < 1 || c >= env->COLS - 1) {
+        return;
+    }
 
-                Cell cell = board[r][c];
+    // we can select any interior cell to cycle the mirros
+    Cell* cell = &env->board[BOARD_IDX(env->COLS, r, c)];
+    cell->mirror = (cell->mirror + 1) % 3;
+    env->moves_made++;
 
-                if (cell.type == MIRROR_LEFT) {
-                    DrawLine(x + 10, y + 10, x + cellSize - 10, y + cellSize - 10, BLACK);
-                } else if (cell.type == MIRROR_RIGHT) {
-                    DrawLine(x + cellSize - 10, y + 10, x + 10, y + cellSize - 10, BLACK);
-                } else if (cell.type == LASER) {
-                    DrawText(TextFormat("L%d", cell.id), x + 20, y + 25, 24, RED);
-                } else if (cell.type == SENSOR) {
-                    DrawText(TextFormat("S%d", cell.id), x + 20, y + 25, 24, BLUE);
+    // now we need to detect and update how many lasers are in thier sink and mirros are placed
+    env->sinks_found = 0;
+    env->mirrors_placed = 0;
+    for (int r = 0; r < env->ROWS; r++) {
+        for (int c = 0; c < env->COLS; c++) {
+            Cell boardCell = env->board[BOARD_IDX(env->COLS, r, c)];
+            if (boardCell.mirror != MIRROR_NONE) {
+                env->mirrors_placed++;
+            }
+
+            if (boardCell.type == LASER) {
+                int laserId = boardCell.id;
+                int curR = r;
+                int curC = c;
+                int dr = 0;
+                int dc = 0;
+
+                if (curR == 0) {
+                    dr = 1;
+                } else if (curR == env->ROWS - 1) {
+                    dr = -1;
+                } else if (curC == 0) {
+                    dc = 1;
+                } else if (curC == env->COLS - 1) {
+                    dc = -1;
+                }
+
+                while (curR + dr >= 0 && curR + dr < env->ROWS && curC + dc >= 0 && curC + dc < env->COLS) {
+                    curR += dr;
+                    curC += dc;
+
+                    Cell hitCell = env->board[BOARD_IDX(env->COLS, curR, curC)];
+                    if (hitCell.type == SENSOR) {
+                        if (hitCell.id == laserId) {
+                            env->sinks_found++;
+                        }
+                        break;
+                    } else if (hitCell.type == LASER) {
+                        break;
+                    } else if (hitCell.mirror == MIRROR_LEFT) {
+                        int oldDr = dr;
+                        dr = dc;
+                        dc = oldDr;
+                    } else if (hitCell.mirror == MIRROR_RIGHT) {
+                        int oldDr = dr;
+                        dr = -dc;
+                        dc = -oldDr;
+                    }
                 }
             }
         }
+    }
+}
 
-        EndDrawing();
+
+void trace_laser(LaserPuzzle * env, int r, int c) {
+    Cell laser = env->board[BOARD_IDX(env->COLS, r, c)];
+    Color laserColor = LASER_COLORS[laser.id % 8];
+
+    int dr = 0;
+    int dc = 0;
+    if (r == 0) {
+        dr = 1;
+    } else if (r == env->ROWS - 1) {
+        dr = -1;
+    } else if (c == 0) {
+        dc = 1;
+    } else if (c == env->COLS - 1) {
+        dc = -1;
     }
 
-    CloseWindow();
+    int gridWidth = env->COLS * CELL_SIZE;
+    int gridHeight = env->ROWS * CELL_SIZE;
+    int offsetX = (GetScreenWidth() - gridWidth) / 2;
+    int offsetY = (GetScreenHeight() - gridHeight) / 2;
+
+    int curR = r;
+    int curC = c;
+
+    while (curR + dr >= 0 && curR + dr < env->ROWS && curC + dc >= 0 && curC + dc < env->COLS) {
+        int nextR = curR + dr;
+        int nextC = curC + dc;
+
+        Vector2 start = {
+            offsetX + curC * CELL_SIZE + CELL_SIZE / 2.0f,
+            offsetY + curR * CELL_SIZE + CELL_SIZE / 2.0f
+        };
+        Vector2 end = {
+            offsetX + nextC * CELL_SIZE + CELL_SIZE / 2.0f,
+            offsetY + nextR * CELL_SIZE + CELL_SIZE / 2.0f
+        };
+
+        // offset so that the puffer fish mouth not blocked by lasers
+        if (env->board[BOARD_IDX(env->COLS, curR, curC)].type == LASER) {
+            start.x += dc * 27.0f;
+            start.y += dr * 27.0f;
+        }
+
+        DrawLineEx(start, end, 7, Fade(laserColor, 0.65f));
+        DrawLineEx(start, end, 3, Fade(WHITE, 0.75f));
+
+        // update current cell
+        curR = nextR;
+        curC = nextC;
+        
+        // update direction
+        Cell cell = env->board[BOARD_IDX(env->COLS, curR, curC)];
+        if (cell.mirror == MIRROR_LEFT) {
+            int oldDr = dr;
+            dr = dc;
+            dc = oldDr;
+        } else if (cell.mirror == MIRROR_RIGHT) {
+            int oldDr = dr;
+            dr = -dc;
+            dc = -oldDr;
+        }
+    }
+}
+
+void draw_lasers(LaserPuzzle *env) {
+    for (int r = 0; r < env->ROWS; r++) {
+        for (int c = 0; c < env->COLS; c++) {
+            if (env->board[BOARD_IDX(env->COLS, r, c)].type == LASER) {
+                trace_laser(env, r, c);
+            }
+        }
+    }
+}
+
+// render the state
+void c_render(LaserPuzzle* env) {
+    // init window
+    if (!IsWindowReady()) {
+        InitWindow(800, 700, "laser puzzle");
+        SetTargetFPS(60);
+    }
+    
+    // load puffers and font
+    if (!env->assets_loaded) {
+        env->sprites = LoadTexture("puffers.png");
+        env->font = LoadFontEx("JetBrainsMono-SemiBold.ttf", 32, NULL, 0);
+        env->assets_loaded = 1;
+    }
+
+    // signal env to close
+    if (WindowShouldClose()) {
+        env->should_close = 1;
+        return;
+    }
+
+    BeginDrawing();
+
+    ClearBackground((Color){10, 12, 24, 255});
+
+    // draw the centered grid
+    int gridWidth = env->COLS * CELL_SIZE;
+    int gridHeight = env->ROWS * CELL_SIZE;
+    int offsetX = (GetScreenWidth() - gridWidth) / 2;
+    int offsetY = (GetScreenHeight() - gridHeight) / 2;
+
+    for (int r = 0; r < env->ROWS; r++) {
+        for (int c = 0; c < env->COLS; c++) {
+            int x = offsetX + c * CELL_SIZE;
+            int y = offsetY + r * CELL_SIZE;
+
+            // draw the grey "X" for the mirrors (exclude border cells)
+            if (r > 0 && r < env->ROWS - 1 && c > 0 && c < env->COLS - 1) {
+                DrawLineEx((Vector2){x + 20, y + 20}, (Vector2){x + CELL_SIZE - 20, y + CELL_SIZE - 20}, 2, Fade(GRAY, 0.25f));
+                DrawLineEx((Vector2){x + CELL_SIZE - 20, y + 20}, (Vector2){x + 20, y + CELL_SIZE - 20}, 2, Fade(GRAY, 0.25f));
+            }
+
+            Cell cell = env->board[BOARD_IDX(env->COLS, r, c)];
+
+            if (cell.mirror == MIRROR_LEFT) {
+                DrawLineEx((Vector2){x + 10, y + 10}, (Vector2){x + CELL_SIZE - 10, y + CELL_SIZE - 10}, 12, Fade(VIOLET, 0.55f));
+                DrawLineEx((Vector2){x + 10, y + 10}, (Vector2){x + CELL_SIZE - 10, y + CELL_SIZE - 10}, 8, Fade(SKYBLUE, 0.9f));
+                DrawLineEx((Vector2){x + 10, y + 10}, (Vector2){x + CELL_SIZE - 10, y + CELL_SIZE - 10}, 4, BLACK);
+            } else if (cell.mirror == MIRROR_RIGHT) {
+                DrawLineEx((Vector2){x + CELL_SIZE - 10, y + 10}, (Vector2){x + 10, y + CELL_SIZE - 10}, 12, Fade(VIOLET, 0.55f));
+                DrawLineEx((Vector2){x + CELL_SIZE - 10, y + 10}, (Vector2){x + 10, y + CELL_SIZE - 10}, 8, Fade(SKYBLUE, 0.9f));
+                DrawLineEx((Vector2){x + CELL_SIZE - 10, y + 10}, (Vector2){x + 10, y + CELL_SIZE - 10}, 4, BLACK);
+            } else if (cell.type == LASER) {
+                int spriteIndex = cell.id % 8;
+                Rectangle source = {spriteIndex * 64.0f, 392.0f, 64.0f, 46.0f};
+                Rectangle dest = {x + CELL_SIZE / 2.0f, y + CELL_SIZE / 2.0f, 64.0f, 46.0f};
+
+                // need to make sure pufferfish are facing the right direction
+                Vector2 origin = {32.0f, 23.0f};
+                float rotation = 0.0f;
+
+                if (r == 0) {
+                    rotation = 90.0f;
+                } else if (r == env->ROWS - 1) {
+                    rotation = -90.0f;
+                } else if (c == env->COLS - 1) {
+                    rotation = 180.0f;
+                }
+
+                DrawTexturePro(env->sprites, source, dest, origin, rotation, WHITE);
+            } else if (cell.type == SENSOR) {
+                int spriteIndex = cell.id % 8;
+                Rectangle source = {spriteIndex * 64.0f, 529.0f, 64.0f, 30.0f};
+                Rectangle dest = {x + 12.0f, y + 24.0f, 56.0f, 26.0f};
+                DrawTexturePro(env->sprites, source, dest, (Vector2){0}, 0.0f, WHITE);
+            }
+        }
+    }
+
+    // draw the lasers
+    draw_lasers(env);
+
+    // draw the sinks found and mirrors used
+    const float fontSize = 32.0f;
+    const float spacing = 1.0f;
+    const char* sinksText = TextFormat("Sinks: %i/%i", env->sinks_found, env->total_sinks);
+    const char* movesText = TextFormat("Moves: %i", env->moves_made);
+    const char* mirrorsText = TextFormat("Mirrors: %i/%i", env->mirrors_placed, env->optimal_mirrors);
+    const char* levelText = TextFormat("Level: %i/%i", env->level_index + 1, VERIFIED_PUZZLE_COUNT);
+    Vector2 levelSize = MeasureTextEx(env->font, levelText, fontSize, spacing);
+    Vector2 movesSize = MeasureTextEx(env->font, movesText, fontSize, spacing);
+    Vector2 mirrorsSize = MeasureTextEx(env->font, mirrorsText, fontSize, spacing);
+
+    DrawTextEx(env->font, sinksText, (Vector2){16, 14}, fontSize, spacing, RAYWHITE);
+    DrawTextEx(env->font, levelText, (Vector2){(GetScreenWidth() - levelSize.x) / 2.0f, 14}, fontSize, spacing, RAYWHITE);
+    DrawTextEx(env->font, movesText, (Vector2){GetScreenWidth() - movesSize.x - 16, GetScreenHeight() - fontSize - 16}, fontSize, spacing, RAYWHITE);
+    DrawTextEx(env->font, mirrorsText, (Vector2){GetScreenWidth() - mirrorsSize.x - 16, 14}, fontSize, spacing, RAYWHITE);
+
+    EndDrawing();
+}
+
+
+void free_laser_puzzle(LaserPuzzle * env) {
+    free(env->board);
+    env->board = NULL;
+}
+
+// any closing preparations, also close the renderer, free any allocated memory
+void c_close(LaserPuzzle* env) {
+    if (env->assets_loaded) {
+        UnloadTexture(env->sprites);
+        UnloadFont(env->font);
+        env->assets_loaded = 0;
+    }
+
+    if (IsWindowReady()) {
+        CloseWindow();
+    }
+
+    // free LaserPuzzle
+    free_laser_puzzle(env);
+}
+
+
+// TODO: Handle game over and that c_reset start up with a new level
+int main() {
+    srand((unsigned int)time(NULL));
+
+    LaserPuzzle env = {
+        .ROWS = INIT_ROWS,
+        .COLS = INIT_COLS,
+    };
+
+    c_reset(&env);
+
+    while (!env.should_close) {
+        c_step(&env);
+        c_render(&env);
+    }
+
+    c_close(&env);
+    return 0;
 }
