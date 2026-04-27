@@ -1,8 +1,9 @@
 #ifndef PUZZLE_TYPES_H
 #define PUZZLE_TYPES_H
 
-const int INIT_ROWS = 6;
-const int INIT_COLS = 6;
+#define INIT_ROWS 6
+#define INIT_COLS 6
+#define MAX_LASERS 4
 
 typedef enum {
     EMPTY,
