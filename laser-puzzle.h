@@ -12,7 +12,13 @@ static const Color LASER_COLORS[] = {SKYBLUE, RED, GREEN, YELLOW, BLUE, ORANGE, 
 
 
 // observations: 6*6 board, one byte per cell:
-// 0 empty, 1-4 laser ids 0-3, 5-8 sensor ids 0-3, 9 mirror /, 10 mirror \'
+// 0 empty, 1-8 laser ids 0-7, 9-16 sensor ids 0-7, 17 mirror /, 18 mirror \'
+const int OBS_SIZE = INIT_ROWS * INIT_COLS;
+const unsigned char OBS_EMPTY = 0;
+const unsigned char OBS_LASER = 1;
+const unsigned char OBS_SENSOR = OBS_LASER + MAX_LASERS;
+const unsigned char OBS_MIRROR_RIGHT = OBS_SENSOR + MAX_LASERS;
+const unsigned char OBS_MIRROR_LEFT = OBS_MIRROR_RIGHT + 1;
 
 
 // actions: 4 * 4 * 3, set mirror to none, left or right for each interior cell. discrete actions
@@ -71,21 +77,7 @@ typedef struct{
 }  LaserPuzzle;
 
 
-void apply_action(LaserPuzzle* env) {
-    int action = (int)env->actions[0];
-
-    int cell_idx = action / ACTIONS_PER_CELL;      // 0..15 (for a 6x6 grid)
-    int mirror_action = action % ACTIONS_PER_CELL; // 0..2
-
-    int r = cell_idx / INNER_COLS;                 // 0..3 interior row
-    int c = cell_idx % INNER_COLS;                 // 0..3 interior col
-
-    // +1 to skip the borders, since the actions only correspond to the inner rows
-    Cell* cell = &env->board[BOARD_IDX(env->COLS, r + 1, c + 1)];
-    cell->mirror = (MirrorState)mirror_action;
-}
-
-
+// Memory lifecycle
 void allocate(LaserPuzzle* env) {
     env->ROWS = INIT_ROWS;
     env->COLS = INIT_COLS;
@@ -112,6 +104,34 @@ void deallocate(LaserPuzzle* env) {
     env->terminals = NULL;
 }
 
+// any closing preparations, free any allocated memory
+void c_close(LaserPuzzle* env) {
+    deallocate(env);
+}
+
+// Observations
+void compute_observations(LaserPuzzle* env) {
+    for (int r = 0; r < env->ROWS; r++) {
+        for (int c = 0; c < env->COLS; c++) {
+            Cell cell = env->board[BOARD_IDX(env->COLS, r, c)];
+            unsigned char obs = OBS_EMPTY;
+
+            if (cell.type == LASER) {
+                obs = OBS_LASER + (unsigned char)cell.id;
+            } else if (cell.type == SENSOR) {
+                obs = OBS_SENSOR + (unsigned char)cell.id;
+            } else if (cell.mirror == MIRROR_RIGHT) {
+                obs = OBS_MIRROR_RIGHT;
+            } else if (cell.mirror == MIRROR_LEFT) {
+                obs = OBS_MIRROR_LEFT;
+            }
+
+            env->observations[BOARD_IDX(env->COLS, r, c)] = obs;
+        }
+    }
+}
+
+// Episode lifecycle
 // reset the game state, start a new game
 void c_reset(LaserPuzzle* env) {
     // check if memory has been allocated for the env variable, if not allocate
@@ -140,8 +160,24 @@ void c_reset(LaserPuzzle* env) {
             env->board[BOARD_IDX(env->COLS, r, c)] = level->puzzle[r][c];
         }
     }
+
+    compute_observations(env);
 }
 
+// Action and simulation
+void apply_action(LaserPuzzle* env) {
+    int action = (int)env->actions[0];
+
+    int cell_idx = action / ACTIONS_PER_CELL;      // 0..15 (for a 6x6 grid)
+    int mirror_action = action % ACTIONS_PER_CELL; // 0..2
+
+    int r = cell_idx / INNER_COLS;                 // 0..3 interior row
+    int c = cell_idx % INNER_COLS;                 // 0..3 interior col
+
+    // +1 to skip the borders, since the actions only correspond to the inner rows
+    Cell* cell = &env->board[BOARD_IDX(env->COLS, r + 1, c + 1)];
+    cell->mirror = (MirrorState)mirror_action;
+}
 
 // advance state
 void c_step(LaserPuzzle* env) {
@@ -223,6 +259,7 @@ void c_step(LaserPuzzle* env) {
     }
 
     env->episode_return += env->rewards[0];
+    compute_observations(env);
 
 
     // update the logs, should be updated on every episode termination (should also only be floats used')
@@ -255,6 +292,36 @@ void c_step(LaserPuzzle* env) {
 }
 
 
+// Client lifecycle
+Client* make_client() {
+    Client* client = (Client*)calloc(1, sizeof(Client));
+    InitWindow(800, 700, "laser puzzle");
+    SetTargetFPS(60);
+    client->sprites = LoadTexture("assets/puffers.png");
+    client->font = LoadFontEx("assets/JetBrainsMono-SemiBold.ttf", 32, NULL, 0);
+    client->assets_loaded = 1;
+    return client;
+}
+
+void close_client(Client* client) {
+    if (client == NULL) {
+        return;
+    }
+    if (client->assets_loaded) {
+        UnloadTexture(client->sprites);
+        if (client->background.id != 0) {
+            UnloadTexture(client->background);
+        }
+        UnloadFont(client->font);
+        client->assets_loaded = 0;
+    }
+    if (IsWindowReady()) {
+        CloseWindow();
+    }
+    free(client);
+}
+
+// Rendering
 void trace_laser(LaserPuzzle * env, int r, int c) {
     Cell laser = env->board[BOARD_IDX(env->COLS, r, c)];
     Color laserColor = LASER_COLORS[laser.id % 8];
@@ -329,39 +396,8 @@ void draw_lasers(LaserPuzzle *env) {
     }
 }
 
-Client* make_client() {
-    Client* client = (Client*)calloc(1, sizeof(Client));
-    InitWindow(800, 700, "laser puzzle");
-    SetTargetFPS(60);
-    client->sprites = LoadTexture("assets/puffers.png");
-    client->font = LoadFontEx("assets/JetBrainsMono-SemiBold.ttf", 32, NULL, 0);
-    client->assets_loaded = 1;
-    return client;
-}
-
-void close_client(Client* client) {
-    if (client == NULL) {
-        return;
-    }
-    if (client->assets_loaded) {
-        UnloadTexture(client->sprites);
-        if (client->background.id != 0) {
-            UnloadTexture(client->background);
-        }
-        UnloadFont(client->font);
-        client->assets_loaded = 0;
-    }
-    if (IsWindowReady()) {
-        CloseWindow();
-    }
-    free(client);
-}
-
 // render the state
 void c_render(LaserPuzzle* env) {
-    if (env->client == NULL) {
-        env->client = make_client();
-    }
     Client* client = env->client;
 
     BeginDrawing();
@@ -452,15 +488,5 @@ void c_render(LaserPuzzle* env) {
         DrawTextEx(client->font, solvedText, (Vector2){(GetScreenWidth() - solvedSize.x) / 2.0f, 56}, solvedFontSize, spacing, RAYWHITE);
     }
 
-    // Standard across our envs so exiting is always the same
-    if (IsKeyDown(KEY_ESCAPE)) {
-        exit(0);
-    }
-
     EndDrawing();
-}
-
-// any closing preparations, free any allocated memory
-void c_close(LaserPuzzle* env) {
-    deallocate(env);
 }
