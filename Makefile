@@ -19,4 +19,5 @@ run: $(TARGET)
 clean:
 	rm -f $(TARGET)
 
+# ensure we don't accidentally mix up commands for files while running make
 .PHONY: all run clean generate-levels

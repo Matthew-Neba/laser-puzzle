@@ -10,6 +10,7 @@
 static const int CELL_SIZE = 80;
 static const Color LASER_COLORS[] = {SKYBLUE, RED, GREEN, YELLOW, BLUE, ORANGE, PURPLE, MAGENTA};
 
+
 typedef struct {
     int ROWS;
     int COLS;
@@ -282,6 +283,7 @@ void c_render(LaserPuzzle* env) {
                     rotation = -90.0f;
                 } else if (c == env->COLS - 1) {
                     rotation = 180.0f;
+                    source.height = -source.height;
                 }
 
                 DrawTexturePro(env->sprites, source, dest, origin, rotation, WHITE);
@@ -313,7 +315,7 @@ void c_render(LaserPuzzle* env) {
     // we only get here if we have found all sinks but not in the optimal mirror count (c_step will generate new
     // level if we foudn the optimal mirror count)
     if (env->sinks_found == env->total_sinks) {
-        const char* solvedText = "Puzzle solved! Can you do it in less mirrors?";
+        const char* solvedText = "Puzzle solved! Can you do it with less mirrors?";
         if (env->game_over) {
             solvedText = "Optimal solve! Press R for the next puzzle.";
         }
