@@ -12,6 +12,7 @@ static const Color LASER_COLORS[] = {SKYBLUE, RED, GREEN, YELLOW, BLUE, ORANGE, 
 
 
 typedef struct {
+    // previous game fields, in render version
     int ROWS;
     int COLS;
     Cell *board;
@@ -27,6 +28,7 @@ typedef struct {
     int total_sinks;
     int optimal_mirrors;
 } LaserPuzzle;
+
 
 // reset the game state, start a new game
 void c_reset(LaserPuzzle* env) {
