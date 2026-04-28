@@ -13,19 +13,19 @@ static const Color LASER_COLORS[] = {SKYBLUE, RED, GREEN, YELLOW, BLUE, ORANGE, 
 
 // observations: 6*6 board, one byte per cell:
 // 0 empty, 1-8 laser ids 0-7, 9-16 sensor ids 0-7, 17 mirror /, 18 mirror \'
-const int OBS_SIZE = INIT_ROWS * INIT_COLS;
-const unsigned char OBS_EMPTY = 0;
-const unsigned char OBS_LASER = 1;
-const unsigned char OBS_SENSOR = OBS_LASER + MAX_LASERS;
-const unsigned char OBS_MIRROR_RIGHT = OBS_SENSOR + MAX_LASERS;
-const unsigned char OBS_MIRROR_LEFT = OBS_MIRROR_RIGHT + 1;
+#define LASER_PUZZLE_OBS_SIZE (INIT_ROWS * INIT_COLS)
+#define OBS_EMPTY 0
+#define OBS_LASER 1
+#define OBS_SENSOR (OBS_LASER + MAX_LASERS)
+#define OBS_MIRROR_RIGHT (OBS_SENSOR + MAX_LASERS)
+#define OBS_MIRROR_LEFT (OBS_MIRROR_RIGHT + 1)
 
 
 // actions: 4 * 4 * 3, set mirror to none, left or right for each interior cell. discrete actions
-const int ACTIONS_PER_CELL = 3;
-const int INNER_ROWS = INIT_ROWS - 2;
-const int INNER_COLS = INIT_COLS - 2;
-const int NUM_ACTIONS = 3 * INNER_ROWS * INNER_COLS;
+#define ACTIONS_PER_CELL 3
+#define INNER_ROWS (INIT_ROWS - 2)
+#define INNER_COLS (INIT_COLS - 2)
+#define NUM_ACTIONS (ACTIONS_PER_CELL * INNER_ROWS * INNER_COLS)
 
 
 // Required struct. Only use floats!
@@ -55,6 +55,11 @@ typedef struct{
     float* rewards;
     float* terminals;
 
+    // vecenv uses num_agents and rng; owns_buffers prevents freeing vecenv-owned buffers.
+    int num_agents;
+    unsigned int rng;
+    int owns_buffers;
+
     // length of the current episode
     int episode_length;
     
@@ -77,35 +82,79 @@ typedef struct{
 }  LaserPuzzle;
 
 
-// Memory lifecycle
+// Memory lifecycle, this allocate function only runs in the standalone demo since they puffer venvc already allocates memory
 void allocate(LaserPuzzle* env) {
     env->ROWS = INIT_ROWS;
     env->COLS = INIT_COLS;
     env->max_steps = NUM_ACTIONS;
+    env->num_agents = 1;
+    env->rng = 0;
 
     env->board = (Cell*)calloc(env->ROWS * env->COLS, sizeof(Cell));
-    env->observations = (unsigned char*)calloc(env->ROWS * env->COLS, sizeof(unsigned char));
-    env->actions = (float*)calloc(1, sizeof(float));
-    env->rewards = (float*)calloc(1, sizeof(float));
-    env->terminals = (float*)calloc(1, sizeof(float));
+    if (env->observations == NULL) {
+        env->observations = (unsigned char*)calloc(env->ROWS * env->COLS, sizeof(unsigned char));
+        env->actions = (float*)calloc(1, sizeof(float));
+        env->rewards = (float*)calloc(1, sizeof(float));
+        env->terminals = (float*)calloc(1, sizeof(float));
+        env->owns_buffers = 1;
+    }
 }
 
+// Called from c_close in both standalone and vecenv modes.
 void deallocate(LaserPuzzle* env) {
+    // always free the board, puffer doesnt own it
     free(env->board);
-    free(env->observations);
-    free(env->actions);
-    free(env->rewards);
-    free(env->terminals);
+
+    // check if we are in the standalone demo or puffer owns the buffers
+    if (env->owns_buffers) {
+        free(env->observations);
+        free(env->actions);
+        free(env->rewards);
+        free(env->terminals);
+    }
 
     env->board = NULL;
     env->observations = NULL;
     env->actions = NULL;
     env->rewards = NULL;
     env->terminals = NULL;
+
+    env->owns_buffers = 0;
+}
+
+// Client lifecycle
+Client* make_client() {
+    Client* client = (Client*)calloc(1, sizeof(Client));
+    InitWindow(800, 700, "laser puzzle");
+    SetTargetFPS(60);
+    client->sprites = LoadTexture("assets/puffers.png");
+    client->font = LoadFontEx("assets/JetBrainsMono-SemiBold.ttf", 32, NULL, 0);
+    client->assets_loaded = 1;
+    return client;
+}
+
+void close_client(Client* client) {
+    if (client == NULL) {
+        return;
+    }
+    if (client->assets_loaded) {
+        UnloadTexture(client->sprites);
+        if (client->background.id != 0) {
+            UnloadTexture(client->background);
+        }
+        UnloadFont(client->font);
+        client->assets_loaded = 0;
+    }
+    if (IsWindowReady()) {
+        CloseWindow();
+    }
+    free(client);
 }
 
 // any closing preparations, free any allocated memory
 void c_close(LaserPuzzle* env) {
+    close_client(env->client);
+    env->client = NULL;
     deallocate(env);
 }
 
@@ -134,7 +183,7 @@ void compute_observations(LaserPuzzle* env) {
 // Episode lifecycle
 // reset the game state, start a new game
 void c_reset(LaserPuzzle* env) {
-    // check if memory has been allocated for the env variable, if not allocate
+    // check if memory has been allocated for the env variable (by puffer venvc), if not allocate
     if (env->board == NULL) {
         allocate(env);
     }
@@ -150,7 +199,7 @@ void c_reset(LaserPuzzle* env) {
         env->sink_hit_before[i] = 0;
     }
 
-    int level_index = rand() % VERIFIED_PUZZLE_COUNT;
+    int level_index = rand_r(&env->rng) % VERIFIED_PUZZLE_COUNT;
     const VerifiedPuzzle* level = &VERIFIED_PUZZLES[level_index];
     env->total_sinks = level->sensor_count;
     env->optimal_mirrors = level->optimal_mirrors;
@@ -161,6 +210,7 @@ void c_reset(LaserPuzzle* env) {
         }
     }
 
+    // set the observations (no need for memset here, we can directly set the observations)
     compute_observations(env);
 }
 
@@ -287,39 +337,16 @@ void c_step(LaserPuzzle* env) {
 
         // n is the amount of completed episodes
         env->log.n += 1.0f;
+
+        float terminal_reward = env->rewards[0];
+        float terminal = env->terminals[0];
+        c_reset(env);
+        env->rewards[0] = terminal_reward;
+        env->terminals[0] = terminal;
     }
 
 }
 
-
-// Client lifecycle
-Client* make_client() {
-    Client* client = (Client*)calloc(1, sizeof(Client));
-    InitWindow(800, 700, "laser puzzle");
-    SetTargetFPS(60);
-    client->sprites = LoadTexture("assets/puffers.png");
-    client->font = LoadFontEx("assets/JetBrainsMono-SemiBold.ttf", 32, NULL, 0);
-    client->assets_loaded = 1;
-    return client;
-}
-
-void close_client(Client* client) {
-    if (client == NULL) {
-        return;
-    }
-    if (client->assets_loaded) {
-        UnloadTexture(client->sprites);
-        if (client->background.id != 0) {
-            UnloadTexture(client->background);
-        }
-        UnloadFont(client->font);
-        client->assets_loaded = 0;
-    }
-    if (IsWindowReady()) {
-        CloseWindow();
-    }
-    free(client);
-}
 
 // Rendering
 void trace_laser(LaserPuzzle * env, int r, int c) {
@@ -398,7 +425,18 @@ void draw_lasers(LaserPuzzle *env) {
 
 // render the state
 void c_render(LaserPuzzle* env) {
+    // this client loading here and "escape key to shutdown" is Puffer convention, needs to be like this for
+    // puffer eval to work.
+    if (env->client == NULL) {
+        env->client = make_client();
+    }
     Client* client = env->client;
+
+    // Standard across our envs so exiting is always the same
+    if (IsKeyDown(KEY_ESCAPE)) {
+        exit(0);
+    }
+
 
     BeginDrawing();
 

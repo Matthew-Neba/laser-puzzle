@@ -1,4 +1,4 @@
-#include "laser-puzzle.h"
+#include "laser_puzzle.h"
 
 int main() {
     srand((unsigned int)time(NULL));
