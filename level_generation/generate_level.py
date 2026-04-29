@@ -269,16 +269,16 @@ def generate_puzzle(
     return grid, tries + 1
 
 
-MIN_MIRRORS = 7
-MAX_MIRRORS = 7
-MIN_ROWS = 4
-MAX_ROWS = 4
-MIN_COLS = 4
-MAX_COLS = 4
-MIN_LASERS = 1
-MAX_LASERS = 8
-
 if __name__ == "__main__":
+    MIN_MIRRORS = 7
+    MAX_MIRRORS = 7
+    MIN_ROWS = 4
+    MAX_ROWS = 4
+    MIN_COLS = 4
+    MAX_COLS = 4
+    MIN_LASERS = 1
+    MAX_LASERS = 8
+
     grid, attempts = generate_puzzle(
         MIN_ROWS,
         MAX_ROWS,

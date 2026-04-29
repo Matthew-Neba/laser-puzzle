@@ -1,6 +1,25 @@
 #include "laser_puzzle.h"
+#include "puffernet.h"
+
+#define WEIGHTS_PATH "assets/laser_puzzle_weights.bin"
+
+static void copy_observations(float* out, const unsigned char* in) {
+    for (int i = 0; i < LASER_PUZZLE_OBS_SIZE; i++) {
+        out[i] = (float)in[i];
+    }
+}
 
 int main() {
+    Weights* weights = load_weights(WEIGHTS_PATH);
+    if (weights == NULL) {
+        return 1;
+    }
+
+    int logit_sizes[1] = {NUM_ACTIONS};
+    PufferNet* net = make_puffernet(
+        weights, 1, LASER_PUZZLE_OBS_SIZE, 128, 2, logit_sizes, 1);
+    float observations[LASER_PUZZLE_OBS_SIZE] = {0};
+
     LaserPuzzle env = {0};
 
     // allocate memory, initialize the client
@@ -12,7 +31,7 @@ int main() {
             c_reset(&env);
         }
 
-        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        if (IsKeyDown(KEY_LEFT_SHIFT) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
             int gridWidth = env.COLS * CELL_SIZE;
             int gridHeight = env.ROWS * CELL_SIZE;
             int offsetX = (GetScreenWidth() - gridWidth) / 2;
@@ -29,10 +48,17 @@ int main() {
                 env.actions[0] = (float)(cell_idx * ACTIONS_PER_CELL + mirror_action);
                 c_step(&env);
             }
+        } else {
+            copy_observations(observations, env.observations);
+            forward_puffernet(net, observations, env.actions);
+            c_step(&env);
         }
 
         c_render(&env);
     }
+
+    free_puffernet(net);
+    free(weights);
 
     // deallocate memory, close client
     close_client(env.client);

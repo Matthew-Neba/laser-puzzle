@@ -19,6 +19,7 @@ void my_init(Env* env, Dict* kwargs) {
 
     // Only allocate env-owned state here. vecenv owns observations/actions/rewards/terminals and allocates it in the big buffer
     env->board = (Cell*)calloc(env->ROWS * env->COLS, sizeof(Cell));
+    load_laser_puzzle_levels(env, LASER_PUZZLE_LEVELS_PATH);
 }
 
 void my_log(Log* log, Dict* out) {

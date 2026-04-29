@@ -1,23 +1,28 @@
 CC = gcc
 CFLAGS = -Wall -Wextra
-LDFLAGS = -lraylib
+LDFLAGS = -lraylib -lm
 
-TARGET = game
-SRC = laser_puzzle.c
+HUMAN_TARGET = game_human
+HUMAN_SRC = laser_puzzle_human.c
 
-all: $(TARGET)
+all: $(HUMAN_TARGET)
+
+human: $(HUMAN_TARGET)
 
 generate-levels:
 	python3 level_generation/export_verified_puzzles_header.py
 
-$(TARGET): $(SRC) laser_puzzle.h level_generation/puzzle_types.h level_generation/verified_puzzles.h
-	$(CC) $(CFLAGS) $(SRC) -o $(TARGET) $(LDFLAGS)
+$(HUMAN_TARGET): $(HUMAN_SRC) level_generation/puzzle_types.h assets/laser_puzzle_levels.bin
+	$(CC) $(CFLAGS) $(HUMAN_SRC) -o $(HUMAN_TARGET) $(LDFLAGS)
 
-run: $(TARGET)
-	./$(TARGET)
+run: $(HUMAN_TARGET)
+	./$(HUMAN_TARGET)
+
+run-human: $(HUMAN_TARGET)
+	./$(HUMAN_TARGET)
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(HUMAN_TARGET)
 
 # ensure we don't accidentally mix up commands for files while running make
-.PHONY: all run clean generate-levels
+.PHONY: all human run run-human clean generate-levels

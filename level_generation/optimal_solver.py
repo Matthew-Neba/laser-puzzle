@@ -15,7 +15,6 @@ use bitmasks/bit string in c for state representation
 
 Will implement idffs + pruning based on laser beams path. This means realistically, we should be finding the solution significantly quicker than the worst case
 """
-from generate_level import MAX_MIRRORS 
 from generate_level import DIRS_MAP
 from generate_level import laser_step
 
@@ -101,4 +100,3 @@ def iddfs(grid, max_depth):
             return optimal
     
     return [None, None]
-
